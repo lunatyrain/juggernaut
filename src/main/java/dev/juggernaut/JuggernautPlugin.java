@@ -15,8 +15,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
@@ -49,7 +47,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
             }
         }
         getServer().getPluginManager().registerEvents(this, this);
-        for (String name : new String[]{"juggernaut", "track"}) {
+        for (String name : new String[]{"juggernaut"}) {
             var cmd = getCommand(name);
             if (cmd != null) {
                 cmd.setExecutor(this);
@@ -176,17 +174,6 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
         };
     }
 
-    private static ItemStack trackerCompass() {
-        ItemStack it = new ItemStack(Material.COMPASS);
-        ItemMeta m = it.getItemMeta();
-        m.displayName(Component.text("Juggernaut Tracker", NamedTextColor.RED, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Hold me to hunt the Juggernaut.", NamedTextColor.GRAY)
-                .decoration(TextDecoration.ITALIC, false)));
-        it.setItemMeta(m);
-        return it;
-    }
-
     // -------------------------------------------------------------- events
 
     @EventHandler
@@ -197,7 +184,6 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
             getServer().getScheduler().runTask(this, () -> applyJuggernaut(p));
             Bukkit.broadcast(Component.text("The Juggernaut " + p.getName() + " has returned!", NamedTextColor.RED));
         }
-        if (getConfig().getBoolean("give-compass-on-join", false)) giveCompass(p);
     }
 
     @EventHandler
@@ -217,25 +203,10 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
         clearJuggernaut();
     }
 
-    private void giveCompass(Player p) {
-        p.getInventory().addItem(trackerCompass()).values()
-                .forEach(left -> p.getWorld().dropItemNaturally(p.getLocation(), left));
-    }
-
     // ------------------------------------------------------------ commands
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (cmd.getName().equalsIgnoreCase("track")) {
-            if (!(sender instanceof Player p)) {
-                sender.sendMessage("Players only.");
-                return true;
-            }
-            giveCompass(p);
-            p.sendMessage(Component.text("Hold the compass to hunt the Juggernaut.", NamedTextColor.GREEN));
-            return true;
-        }
-
         if (args.length == 0) {
             sender.sendMessage(Component.text("/" + label + " <set <player>|clear|info>", NamedTextColor.YELLOW));
             return true;
@@ -249,7 +220,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
                     return true;
                 }
                 setJuggernaut(target);
-                Bukkit.broadcast(Component.text(target.getName() + " is now the Juggernaut! Hunt them down with /track",
+                Bukkit.broadcast(Component.text(target.getName() + " is now the Juggernaut! Hunt them down!",
                         NamedTextColor.RED, TextDecoration.BOLD));
             }
             case "clear" -> {
