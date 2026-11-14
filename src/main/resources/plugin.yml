@@ -9,6 +9,12 @@ commands:
     usage: /juggernaut <set <player>|clear|info>
     aliases: [jug]
     permission: juggernaut.admin
+  track:
+    description: Get a Juggernaut tracking compass
+    usage: /track
+    permission: juggernaut.track
 permissions:
   juggernaut.admin:
     default: op
+  juggernaut.track:
+    default: true

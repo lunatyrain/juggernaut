@@ -5,6 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -15,6 +16,10 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
@@ -29,6 +34,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
 
     private UUID juggernaut;
     private String juggernautName = "";
+    private NamespacedKey trackerKey;
     private String previousTeam; // team the Juggernaut was in before we recolored their glow
 
     // ----------------------------------------------------------- lifecycle
@@ -36,6 +42,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        trackerKey = new NamespacedKey(this, "tracker");
         String saved = getConfig().getString("juggernaut", "");
         if (saved != null && !saved.isBlank()) {
             try {
@@ -47,7 +54,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
             }
         }
         getServer().getPluginManager().registerEvents(this, this);
-        for (String name : new String[]{"juggernaut"}) {
+        for (String name : new String[]{"juggernaut", "track"}) {
             var cmd = getCommand(name);
             if (cmd != null) {
                 cmd.setExecutor(this);
@@ -160,6 +167,45 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
                 .append(Component.text(Math.round(dist) + "m", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false));
     }
 
+    // ------------------------------------------------------ tracker compass
+
+    /** Each tracker compass remembers the "epoch" it was made in; a Juggernaut death starts a new epoch. */
+    private int epoch() {
+        return getConfig().getInt("compass-epoch", 0);
+    }
+
+    private ItemStack trackerCompass() {
+        ItemStack it = new ItemStack(Material.COMPASS);
+        ItemMeta m = it.getItemMeta();
+        m.displayName(Component.text("Juggernaut Tracker", NamedTextColor.RED, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text("Hold me to hunt the Juggernaut.", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false)));
+        m.getPersistentDataContainer().set(trackerKey, PersistentDataType.INTEGER, epoch());
+        it.setItemMeta(m);
+        return it;
+    }
+
+    /** True for a tracker compass made before the Juggernaut last died. */
+    private boolean isExpiredTracker(ItemStack it) {
+        if (it == null || it.getType() != Material.COMPASS || !it.hasItemMeta()) return false;
+        Integer made = it.getItemMeta().getPersistentDataContainer().get(trackerKey, PersistentDataType.INTEGER);
+        return made != null && made < epoch();
+    }
+
+    private void removeExpiredTrackers(Player p) {
+        Inventory inv = p.getInventory();
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (isExpiredTracker(inv.getItem(i))) inv.setItem(i, null);
+        }
+        if (isExpiredTracker(p.getItemOnCursor())) p.setItemOnCursor(null);
+    }
+
+    private void giveCompass(Player p) {
+        p.getInventory().addItem(trackerCompass()).values()
+                .forEach(left -> p.getWorld().dropItemNaturally(p.getLocation(), left));
+    }
+
     private static boolean holdingCompass(Player p) {
         return p.getInventory().getItemInMainHand().getType() == Material.COMPASS
                 || p.getInventory().getItemInOffHand().getType() == Material.COMPASS;
@@ -179,11 +225,13 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
+        removeExpiredTrackers(p);   // they were offline when the Juggernaut died
         if (p.getUniqueId().equals(juggernaut)) {
             juggernautName = p.getName();
             getServer().getScheduler().runTask(this, () -> applyJuggernaut(p));
             Bukkit.broadcast(Component.text("The Juggernaut " + p.getName() + " has returned!", NamedTextColor.RED));
         }
+        if (getConfig().getBoolean("give-compass-on-join", false)) giveCompass(p);
     }
 
     @EventHandler
@@ -201,12 +249,28 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
         Bukkit.broadcast(Component.text("The Juggernaut " + p.getName() + " has fallen" + by + "!",
                 NamedTextColor.DARK_RED, TextDecoration.BOLD));
         clearJuggernaut();
+
+        // Juggernaut is dead: every tracker compass is deleted (drops, online players now, offline players on join)
+        getConfig().set("compass-epoch", epoch() + 1);
+        saveConfig();
+        e.getDrops().removeIf(this::isExpiredTracker);
+        for (Player online : Bukkit.getOnlinePlayers()) removeExpiredTrackers(online);
     }
 
     // ------------------------------------------------------------ commands
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if (cmd.getName().equalsIgnoreCase("track")) {
+            if (!(sender instanceof Player p)) {
+                sender.sendMessage("Players only.");
+                return true;
+            }
+            giveCompass(p);
+            p.sendMessage(Component.text("Hold the compass to hunt the Juggernaut.", NamedTextColor.GREEN));
+            return true;
+        }
+
         if (args.length == 0) {
             sender.sendMessage(Component.text("/" + label + " <set <player>|clear|info>", NamedTextColor.YELLOW));
             return true;
@@ -220,7 +284,7 @@ public final class JuggernautPlugin extends JavaPlugin implements Listener, TabE
                     return true;
                 }
                 setJuggernaut(target);
-                Bukkit.broadcast(Component.text(target.getName() + " is now the Juggernaut! Hunt them down!",
+                Bukkit.broadcast(Component.text(target.getName() + " is now the Juggernaut! Hunt them down with /track",
                         NamedTextColor.RED, TextDecoration.BOLD));
             }
             case "clear" -> {

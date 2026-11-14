@@ -1,3 +1,5 @@
 juggernaut: ""               # UUID of the current Juggernaut (managed by /juggernaut set and /juggernaut clear)
 glow-color: RED              # outline color: any Minecraft color name (GOLD, RED, AQUA, ...)
+give-compass-on-join: false  # give every player a tracker compass when they join
 actionbar-interval-ticks: 10 # how often the tracker updates (20 ticks = 1 second)
+compass-epoch: 0           # internal counter, goes up each time the Juggernaut dies so old tracker compasses get deleted
